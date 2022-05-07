@@ -44,32 +44,32 @@ radiance ray@(Ray o d) depth xi = case intersects ray of
     x=o+(d *. t); n=norm$x-p; maxv (Vec a b c)=maximum [a,b,c]
     nl=fi(n`dot`d<0)n$n*.(-1); depth'=depth+1; pr=maxv c;   -- max refl.
     continue f = case refl of
-{ DIFF -> do                                 -- ideal DIFFuse reflection
-  r1 <- ((2*pi)*) `fmap` erand48 xi; r2 <- erand48 xi; let r2s=sqrt r2
-  let u=norm$fi(abs wx>0.1) vy vx%.w; v=w%.u; w@(Vec wx _ _)=nl
-      d' = norm$(u*.(cos r1*r2s))+(v*.(sin r1*r2s))+(w*.sqrt(1-r2))
-  ((+) e . (*) f) `fmap` radiance (Ray x d') depth' xi
-; SPEC -> let d' = d - (n *. (2 * (n`dot`d))) in -- ideal SPECular refl.
-  ((+) e . (*) f) `fmap` radiance (Ray x d') depth' xi
-; REFR -> do  -- Ideal dielectric REFRACTION; Ray from outside going in?
-  let reflRay = Ray x (d-(n*.(2*n`dot`d))); into=n`dot`nl>0
-      nc=1; nt=1.5; nnt= fi into (nc/nt) (nt/nc); ddn=d`dot`nl
-      cos2t=1-nnt*nnt*(1-ddn*ddn) -- if <0 : Total internal reflection
-  fi (cos2t<0) (((+) e . (*) f) `fmap` radiance reflRay depth' xi)
-    (let tdir=norm$(d*.nnt-(n*.(fi into 1 (-1)*(ddn*nnt+sqrt cos2t))))
-         a=nt-nc; b=nt+nc; r0=a*a/(b*b); c=1-fi into (-ddn) (tdir`dot`n)
-         re=r0+(1-r0)*c*c*c*c*c;tr=1-re;q=0.25+re/2;rp=re/q;tp=tr/(1-q)
-     in ((+) e . (*) f) `fmap` fi (depth>2) (do{er<-erand48 xi; fi(er<q)
-          ((*. rp) `fmap` radiance reflRay depth' xi)    -- ^^^^ Russian
-          ((*. tp) `fmap` radiance (Ray x tdir) depth' xi)}) -- roulette
-          (do rad0 <- (*. re) `fmap` radiance reflRay depth' xi
-              rad1 <- (*. tr) `fmap` radiance (Ray x tdir) depth' xi
-              return $ rad0 + rad1))
-}
+    { DIFF -> do                                 -- ideal DIFFuse reflection
+      r1 <- ((2*pi)*) `fmap` erand48 xi; r2 <- erand48 xi; let r2s=sqrt r2
+      let u=norm$fi(abs wx>0.1) vy vx%.w; v=w%.u; w@(Vec wx _ _)=nl
+          d' = norm$(u*.(cos r1*r2s))+(v*.(sin r1*r2s))+(w*.sqrt(1-r2))
+      ((+) e . (*) f) `fmap` radiance (Ray x d') depth' xi
+    ; SPEC -> let d' = d - (n *. (2 * (n`dot`d))) in -- ideal SPECular refl.
+      ((+) e . (*) f) `fmap` radiance (Ray x d') depth' xi
+    ; REFR -> do  -- Ideal dielectric REFRACTION; Ray from outside going in?
+      let reflRay = Ray x (d-(n*.(2*n`dot`d))); into=n`dot`nl>0
+          nc=1; nt=1.5; nnt= fi into (nc/nt) (nt/nc); ddn=d`dot`nl
+          cos2t=1-nnt*nnt*(1-ddn*ddn) -- if <0 : Total internal reflection
+      fi (cos2t<0) (((+) e . (*) f) `fmap` radiance reflRay depth' xi)
+        (let tdir=norm$(d*.nnt-(n*.(fi into 1 (-1)*(ddn*nnt+sqrt cos2t))))
+             a=nt-nc; b=nt+nc; r0=a*a/(b*b); c=1-fi into (-ddn) (tdir`dot`n)
+             re=r0+(1-r0)*c*c*c*c*c;tr=1-re;q=0.25+re/2;rp=re/q;tp=tr/(1-q)
+         in ((+) e . (*) f) `fmap` fi (depth>2) (do{er<-erand48 xi; fi(er<q)
+              ((*. rp) `fmap` radiance reflRay depth' xi)    -- ^^^^ Russian
+              ((*. tp) `fmap` radiance (Ray x tdir) depth' xi)}) -- roulette
+              (do rad0 <- (*. re) `fmap` radiance reflRay depth' xi
+                  rad1 <- (*. tr) `fmap` radiance (Ray x tdir) depth' xi
+                  return $ rad0 + rad1))
+    }
 smallpt w h ns = do  -- number of samples, camera position and direction
   let samps=ns`div`4;pos=Vec 50 52 295.6;dir=norm$Vec 0 (-0.042612) (-1)
       cx=Vec (flt w * 0.5135 / flt h) 0 0; cy=norm (cx %. dir) *. 0.5135
-  c <- VM.newWith (w * h) black; allocaArray 3 $ \xi ->
+  c <- VM.replicate (w * h) black; allocaArray 3 $ \xi ->
   -- no parallelism yet
 	flip mapM_ [0..h-1] $ \y -> do               -- loop over image rows
       let fmt = "\rRendering (%d spp) %5.2f%%"; flt' = fromIntegral
@@ -78,13 +78,14 @@ smallpt w h ns = do  -- number of samples, camera position and direction
         let i = (h-y-1) * w + x in flip mapM_ [0..1] $ \sy -> do
           flip mapM_ [0..1] $ \sx -> do
             r <- newIORef black; flip mapM_ [0..samps-1] $ \s -> do
-{ r1<-(2*)`fmap`erand48 xi; let dx=fi (r1<1) (sqrt r1-1) (1-sqrt(2-r1))
-; r2<-(2*)`fmap`erand48 xi; let dy=fi (r2<1) (sqrt r2-1) (1-sqrt(2-r2))
-; let d = (cx *. (((sx + 0.5 + dx)/2 + flt x)/flt w - 0.5)) +
-          (cy *. (((sy + 0.5 + dy)/2 + flt y)/flt h - 0.5)) + dir
-; rad <- radiance (Ray (pos+(d*.140)) (norm d)) 0 xi
-            -- Camera rays are ^^^^^ pushed forward to start in interior
-; modifyIORef r (+ (rad *. (1 / flt samps)))}
+            { r1<-(2*)`fmap`erand48 xi; let dx=fi (r1<1) (sqrt r1-1) (1-sqrt(2-r1))
+            ; r2<-(2*)`fmap`erand48 xi; let dy=fi (r2<1) (sqrt r2-1) (1-sqrt(2-r2))
+            ; let d = (cx *. (((sx + 0.5 + dx)/2 + flt x)/flt w - 0.5)) +
+                      (cy *. (((sy + 0.5 + dy)/2 + flt y)/flt h - 0.5)) + dir
+            ; rad <- radiance (Ray (pos+(d*.140)) (norm d)) 0 xi
+                        -- Camera rays are ^^^^^ pushed forward to start in interior
+            ; modifyIORef r (+ (rad *. (1 / flt samps)))
+            }
             ci <- VM.unsafeRead c i; Vec rr rg rb <- readIORef r
             VM.unsafeWrite c i $ ci + (Vec (clamp rr) (clamp rg)
                                                      (clamp rb) *. 0.25)
